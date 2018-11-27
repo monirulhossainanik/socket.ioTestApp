@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Socket.io</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.2/css/bulma.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <style media="screen">
+        .list-scroll {
+            height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div class="container">
+        <div class="columns" v-if="!chatStart">
+            <div class="column is-6 is-offset-3">
+                <article class="message is-primary">
+                    <div class="message-header">
+                        <p>Chat powered by Socket.io</p>
+                    </div>
+                    <div class="message-body">
+                        <div class="field has-addons" style="margin: 50px 0">
+                            <div class="control is-expanded">
+                                <input class="input is-success" type="text" placeholder="Enter name" v-model="userName">
+                            </div>
+                            <div class="control">
+                                <a class="button is-primary" @click="addUser">
+                                    Join
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+        <div class="columns" v-else>
+            <div class="column is-3">
+                <article class="message is-info">
+                    <div class="message-header">
+                        <p>Notification</p>
+                    </div>
+                    <div class="message-body">
+                        <div class="card" style="padding: 10px" v-for="notification in notifications">
+                            {{ notification }}
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <div class="column is-6">
+                <article class="message is-primary">
+                    <div class="message-header">
+                        <p>Chat powered by Socket.io</p>
+                        <span class="is-pulled-right">{{ userName }}</span>
+                    </div>
+                    <div class="message-body list-scroll">
+                        <ul style="list-style-type:none">
+                            <li :style="message.move" v-for="message in messages">
+                                <span :class="[userName === message.user ? 'tag is-success' : 'tag is-info']">{{ message.user }}</span>
+                                : <span class="tag is-light">{{ message.text }}</span>
+                            </li>
+                        </ul>
+                        <ul style="list-style-type:none">
+                            <li class="is-pulled-right" style="clear: both" v-for="typeUser in typeUsers">
+                                <small>{{ typeUser }} is typing</small>
+                                <br>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="field" style="margin-top: 50px">
+                        <div class="control">
+                            <form @submit.prevent="sendMessage">
+                                <input class="input is-success" type="text" placeholder="Type here"
+                                       v-model="newMessage">
+                            </form>
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <div class="column is-3">
+                <article class="message is-success">
+                    <div class="message-header">
+                        <p>Current User: {{ users.length }}</p>
+                    </div>
+                    <div class="message-body">
+                        <div class="card" style="padding:10px" v-for="user in users">
+                            {{ user }}
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    var socket = io();
+    let app = new Vue({
+        el: '#app',
+        data: {
+            userName: '',
+            users: [],
+            typeUsers: [],
+            notifications: [],
+            messages: [],
+            newMessage: '',
+            chatStart: false,
+            msg: '',
+        },
+        created() {
+            socket.emit('Created', 'Hi');
+            socket.on('Created', (data) => {
+                console.log(data);
+            });
+            socket.on('joining', (user) => {
+                //this.users.push(user);
+                this.newNotification(user + ' joined');
+            });
+            socket.on('leaving', (user) => {
+                this.newNotification(user + ' left');
+            });
+            socket.on('current-user', (users) => {
+                this.users = users;
+            });
+            socket.on('new-message', (data) => {
+                this.messages.push({text: data.message, move: {float: 'left', clear: 'both'}, user: data.user});
+            });
+            socket.on('typing', (user) => {
+                let notFound = true;
+                for (let i = 0; i < this.typeUsers.length && notFound; i++) {
+                    if (this.typeUsers[i] === user)
+                        notFound = false;
+                }
+                if (notFound)
+                    this.typeUsers.push(user);
+            });
+            socket.on('not-typing', (user) => {
+                let index = -1;
+                for (let i = 0; i < this.typeUsers.length && index < 0; i++) {
+                    if (this.typeUsers[i] === user)
+                        index = i;
+                }
+                if (index >= 0)
+                    this.typeUsers.splice(index, 1);
+            });
+
+            window.onbeforeunload = () => {
+                socket.emit('leaving', this.userName);
+            };
+        },
+        watch: {
+            newMessage(value) {
+                value ? socket.emit('typing', this.userName) : socket.emit('not-typing', this.userName);
+            }
+        },
+        methods: {
+            scrollToEnd() {
+                let content = document.querySelector(".list-scroll");
+                content.scrollTop = content.scrollHeight;
+            },
+            sendMessage() {
+                if (this.newMessage) {
+                    this.messages.push({
+                        text: this.newMessage,
+                        move: {float: 'right', clear: 'both'},
+                        user: this.userName
+                    });
+                    socket.emit('new-message', {message: this.newMessage, user: this.userName});
+                    this.newMessage = '';
+                }
+            },
+            addUser() {
+                if (this.userName) {
+
+                    socket.emit('joining', this.userName);
+                    this.chatStart = true;
+                }
+            },
+            newNotification(msg) {
+                this.notifications.push(msg);
+                setTimeout(() => {
+                    this.notifications = [];
+                }, 5000);
+            },
+        },
+        updated() {
+            if (this.chatStart)
+                this.scrollToEnd();
+        }
+    });
+</script>
+</body>
+</html>
